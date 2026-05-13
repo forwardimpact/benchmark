@@ -35,6 +35,10 @@ inputs:
     description: Agent turn budget (0 = unlimited)
     required: false
     default: "50"
+  allowed-tools:
+    description: Comma-separated list of allowed tools for the agent-under-test
+    required: false
+    default: "Bash,Read,Glob,Grep,Write,Edit,Agent,TodoWrite"
   k:
     description: Comma-separated k values for pass@k
     required: false
@@ -107,6 +111,7 @@ runs:
         AGENT_PROFILE: ${{ inputs.agent-profile }}
         JUDGE_PROFILE: ${{ inputs.judge-profile }}
         MAX_TURNS: ${{ inputs.max-turns }}
+        TOOLS: ${{ inputs.allowed-tools }}
         TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
       run: |
         # Resolve CLI — prefer local install, fall back to bunx, then npx
@@ -126,6 +131,7 @@ runs:
         args+=("--supervisor-model=$SUPERVISOR_MODEL")
         args+=("--judge-model=$JUDGE_MODEL")
         args+=("--max-turns=$MAX_TURNS")
+        args+=("--allowed-tools=$TOOLS")
 
         if [ -n "$AGENT_PROFILE" ]; then
           args+=("--agent-profile=$AGENT_PROFILE")
