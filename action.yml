@@ -17,8 +17,8 @@ inputs:
     description: Claude model for the agent-under-test
     required: false
     default: "claude-sonnet-4-6"
-  supervisor-model:
-    description: Claude model for the supervisor
+  lead-model:
+    description: Claude model for the lead role
     required: false
     default: "claude-opus-4-7"
   judge-model:
@@ -106,7 +106,7 @@ runs:
         OUTPUT_DIR: ${{ inputs.output }}
         RUNS: ${{ inputs.runs }}
         AGENT_MODEL: ${{ inputs.agent-model }}
-        SUPERVISOR_MODEL: ${{ inputs.supervisor-model }}
+        LEAD_MODEL: ${{ inputs.lead-model }}
         JUDGE_MODEL: ${{ inputs.judge-model }}
         AGENT_PROFILE: ${{ inputs.agent-profile }}
         JUDGE_PROFILE: ${{ inputs.judge-profile }}
@@ -128,7 +128,7 @@ runs:
         args+=("--output=$OUTPUT_DIR")
         args+=("--runs=$RUNS")
         args+=("--agent-model=$AGENT_MODEL")
-        args+=("--supervisor-model=$SUPERVISOR_MODEL")
+        args+=("--lead-model=$LEAD_MODEL")
         args+=("--judge-model=$JUDGE_MODEL")
         args+=("--max-turns=$MAX_TURNS")
         args+=("--allowed-tools=$TOOLS")
