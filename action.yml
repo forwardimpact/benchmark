@@ -102,6 +102,12 @@ runs:
     - name: Run benchmark
       shell: bash
       env:
+        # The agent-under-test runs in bypass-permissions mode
+        # (--dangerously-skip-permissions), which Claude Code refuses under
+        # uid 0 unless the process is marked sandboxed. CI containers may run
+        # as root, so mark the run sandboxed; the SDK forwards this env to the
+        # spawned Claude Code process. Harmless on non-root runners.
+        IS_SANDBOX: "1"
         FAMILY: ${{ inputs.family }}
         OUTPUT_DIR: ${{ inputs.output }}
         RUNS: ${{ inputs.runs }}
