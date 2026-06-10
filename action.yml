@@ -14,17 +14,17 @@ inputs:
     required: false
     default: "5"
   agent-model:
-    description: Claude model for the agent-under-test
+    description: Claude model for the agent-under-test; empty uses the fit-benchmark CLI default
     required: false
-    default: "claude-sonnet-4-6"
+    default: ""
   lead-model:
-    description: Claude model for the lead role
+    description: Claude model for the lead role; empty uses the fit-benchmark CLI default
     required: false
-    default: "claude-opus-4-7"
+    default: ""
   judge-model:
-    description: Claude model for the judge
+    description: Claude model for the judge; empty uses the fit-benchmark CLI default
     required: false
-    default: "claude-opus-4-7"
+    default: ""
   agent-profile:
     description: Agent-under-test profile name
     required: false
@@ -133,9 +133,17 @@ runs:
         args+=("--family=$FAMILY")
         args+=("--output=$OUTPUT_DIR")
         args+=("--runs=$RUNS")
-        args+=("--agent-model=$AGENT_MODEL")
-        args+=("--lead-model=$LEAD_MODEL")
-        args+=("--judge-model=$JUDGE_MODEL")
+        # Model flags are omitted when empty so the CLI defaults
+        # (@forwardimpact/libutil/models) stay the single source of truth.
+        if [ -n "$AGENT_MODEL" ]; then
+          args+=("--agent-model=$AGENT_MODEL")
+        fi
+        if [ -n "$LEAD_MODEL" ]; then
+          args+=("--lead-model=$LEAD_MODEL")
+        fi
+        if [ -n "$JUDGE_MODEL" ]; then
+          args+=("--judge-model=$JUDGE_MODEL")
+        fi
         args+=("--max-turns=$MAX_TURNS")
         args+=("--allowed-tools=$TOOLS")
 
