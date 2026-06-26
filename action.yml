@@ -126,7 +126,7 @@ runs:
         elif command -v bunx &>/dev/null; then
           BENCH_CMD="bunx fit-benchmark"
         else
-          BENCH_CMD="npx --yes @forwardimpact/libeval fit-benchmark"
+          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
         fi
 
         args=()
@@ -169,7 +169,7 @@ runs:
         elif command -v bunx &>/dev/null; then
           BENCH_CMD="bunx fit-benchmark"
         else
-          BENCH_CMD="npx --yes @forwardimpact/libeval fit-benchmark"
+          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
         fi
 
         RESULTS="$OUTPUT_DIR/results.jsonl"
