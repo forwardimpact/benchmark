@@ -38,9 +38,14 @@ Handles task-family execution, pass@k reporting, and result artifact upload.
 | `max-turns`        | No       | `50`               | Agent turn budget (0 = unlimited)         |
 | `k`                | No       | `1,3,5`            | Comma-separated k values for pass@k       |
 | `format`           | No       | `text`             | Report output format (`json` or `text`)   |
+| `concurrency`      | No       | —                  | Max cells run concurrently in-process (empty uses the CPU-aware CLI default, on by default) |
+| `shard-index`      | No       | `1`                | 1-based shard index (run mode)            |
+| `shard-total`      | No       | `1`                | Total shard count; `1` runs the whole family |
+| `mode`             | No       | `run`              | `run` executes one shard; `merge` aggregates every shard's partial ledger |
+| `merge-input`      | No       | `benchmark-merge`  | Directory shard ledgers download into (merge mode) |
 | `summary`          | No       | `true`             | Append report to GITHUB_STEP_SUMMARY      |
 | `upload-results`   | No       | `true`             | Upload results.jsonl as artifact          |
-| `artifact-name`    | No       | `benchmark-results`| Name for the uploaded artifact            |
+| `artifact-name`    | No       | `benchmark-results`| Name for the uploaded artifact (run mode with `shard-total` > 1 uploads `benchmark-shard-<i>`) |
 | `timeout-minutes`  | No       | `60`               | Max runtime for the run step (minutes)    |
 
 ## Outputs
@@ -61,3 +66,30 @@ The action executes three steps in sequence:
    Disable with `summary: "false"`.
 3. **Upload** — uploads `results.jsonl` as a workflow artifact. Fires even when
    earlier steps fail. Disable with `upload-results: "false"`.
+
+In `mode: merge` the action skips the run/agent steps, downloads every
+`benchmark-shard-*` artifact, and runs `fit-benchmark report` recursively over
+them to emit one combined pass@k summary plus a merged `results.jsonl`.
+
+## Sharding across machines
+
+One machine has a CPU and per-job time ceiling. The bundled reusable workflow
+fans a family across `shard-total` machines and merges the partial ledgers into
+one pass@k — cross-machine parallelism from a single input:
+
+```yaml
+jobs:
+  benchmark:
+    uses: forwardimpact/fit-benchmark/.github/workflows/benchmark.yml@v1
+    with:
+      family: ./benchmarks/my-family
+      shard-total: 4
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The workflow runs a `prepare` job (emits the shard list), `shard-total` parallel
+`shard` jobs (each runs its slice with Layer-1 concurrency and uploads
+`benchmark-shard-<i>`), and one dependent `merge` job (no agent scaffold — only
+the report CLI) that aggregates the combined report. Calling the action directly
+with `shard-total` unset is the identity case: the whole family in one job.
