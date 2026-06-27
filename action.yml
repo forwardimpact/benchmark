@@ -1,5 +1,5 @@
 name: FIT Benchmark
-description: Run coding-agent benchmarks via the fit-benchmark CLI — task-family execution, pass@k reporting, and result upload
+description: Run coding-agent benchmarks via the fit-benchmark CLI — task-family execution, in-process concurrency, cross-machine sharding, pass@k reporting, and result upload
 
 inputs:
   family:
@@ -39,6 +39,26 @@ inputs:
     description: Comma-separated list of allowed tools for the agent-under-test
     required: false
     default: "Bash,Read,Glob,Grep,Write,Edit,Agent,TodoWrite"
+  concurrency:
+    description: Max cells run concurrently in-process; empty uses the fit-benchmark CLI default (CPU-aware, on by default)
+    required: false
+    default: ""
+  shard-index:
+    description: 1-based shard index for cross-machine sharding (run mode). 1 with shard-total 1 is the whole family.
+    required: false
+    default: "1"
+  shard-total:
+    description: Total shard count for cross-machine sharding (run mode). 1 runs the whole family in one job.
+    required: false
+    default: "1"
+  mode:
+    description: "run (default): execute one shard and upload its partial ledger. merge: download every shard's partial ledger and aggregate one combined pass@k report."
+    required: false
+    default: "run"
+  merge-input:
+    description: Directory the shard partial ledgers are downloaded into before merging (merge mode)
+    required: false
+    default: "benchmark-merge"
   k:
     description: Comma-separated k values for pass@k
     required: false
@@ -56,7 +76,7 @@ inputs:
     required: false
     default: "true"
   artifact-name:
-    description: Name for the uploaded results artifact
+    description: Name for the uploaded results artifact (run mode with shard-total > 1 uploads benchmark-shard-<shard-index> instead, so a matrix never collides)
     required: false
     default: "benchmark-results"
   timeout-minutes:
@@ -66,13 +86,15 @@ inputs:
 
 outputs:
   results-path:
-    description: Absolute path to results.jsonl
+    description: Absolute path to results.jsonl (run mode)
     value: ${{ steps.resolve-paths.outputs.results-path }}
 
 runs:
   using: composite
   steps:
+    # --- run mode: execute one shard ----------------------------------------
     - name: Install apm
+      if: inputs.mode == 'run'
       shell: bash
       run: |
         if command -v apm &>/dev/null; then
@@ -91,15 +113,27 @@ runs:
         fi
 
     - name: Resolve paths
+      if: inputs.mode == 'run'
       id: resolve-paths
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output }}
+        SHARD_INDEX: ${{ inputs.shard-index }}
+        SHARD_TOTAL: ${{ inputs.shard-total }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
       run: |
         mkdir -p "$OUTPUT_DIR"
         echo "results-path=$(realpath "$OUTPUT_DIR")/results.jsonl" >> "$GITHUB_OUTPUT"
+        # Shard-scope the artifact name so a matrix of shards never collides on
+        # upload; an unsharded run (shard-total 1) keeps the caller's name.
+        if [ "$SHARD_TOTAL" != "1" ]; then
+          echo "artifact-name=benchmark-shard-${SHARD_INDEX}" >> "$GITHUB_OUTPUT"
+        else
+          echo "artifact-name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Run benchmark
+      if: inputs.mode == 'run'
       shell: bash
       env:
         # The agent-under-test runs in bypass-permissions mode
@@ -118,6 +152,9 @@ runs:
         JUDGE_PROFILE: ${{ inputs.judge-profile }}
         MAX_TURNS: ${{ inputs.max-turns }}
         TOOLS: ${{ inputs.allowed-tools }}
+        CONCURRENCY: ${{ inputs.concurrency }}
+        SHARD_INDEX: ${{ inputs.shard-index }}
+        SHARD_TOTAL: ${{ inputs.shard-total }}
         TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
       run: |
         # Resolve CLI — prefer local install, fall back to bunx, then npx
@@ -146,6 +183,13 @@ runs:
         fi
         args+=("--max-turns=$MAX_TURNS")
         args+=("--allowed-tools=$TOOLS")
+        # Concurrency is on by default in the CLI; pass the flag only when set.
+        if [ -n "$CONCURRENCY" ]; then
+          args+=("--concurrency=$CONCURRENCY")
+        fi
+        # Always pass --shard; shard-index/shard-total default to 1/1, the
+        # identity case that runs the whole family.
+        args+=("--shard=${SHARD_INDEX}/${SHARD_TOTAL}")
 
         if [ -n "$AGENT_PROFILE" ]; then
           args+=("--agent-profile=$AGENT_PROFILE")
@@ -156,8 +200,8 @@ runs:
 
         timeout "${TIMEOUT_MINUTES}m" $BENCH_CMD run "${args[@]}"
 
-    - name: Report
-      if: always() && inputs.summary == 'true'
+    - name: Report (run)
+      if: always() && inputs.mode == 'run' && inputs.summary == 'true'
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output }}
@@ -183,10 +227,57 @@ runs:
           --k="$K_VALUES" \
           --format="$FORMAT" >> "$GITHUB_STEP_SUMMARY"
 
-    - name: Upload results
-      if: always() && inputs.upload-results == 'true'
+    - name: Upload shard results
+      if: always() && inputs.mode == 'run' && inputs.upload-results == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: ${{ steps.resolve-paths.outputs.artifact-name }}
+        path: ${{ inputs.output }}/results.jsonl
+        if-no-files-found: warn
+
+    # --- merge mode: aggregate every shard's partial ledger -----------------
+    - name: Download shard ledgers
+      if: inputs.mode == 'merge'
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: benchmark-shard-*
+        path: ${{ inputs.merge-input }}
+
+    - name: Merge report
+      if: inputs.mode == 'merge'
+      shell: bash
+      env:
+        MERGE_INPUT: ${{ inputs.merge-input }}
+        K_VALUES: ${{ inputs.k }}
+        FORMAT: ${{ inputs.format }}
+        SUMMARY: ${{ inputs.summary }}
+      run: |
+        if command -v fit-benchmark &>/dev/null; then
+          BENCH_CMD="fit-benchmark"
+        elif command -v bunx &>/dev/null; then
+          BENCH_CMD="bunx fit-benchmark"
+        else
+          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
+        fi
+
+        # report --input discovers every results.jsonl under the directory
+        # recursively and unions them — one combined pass@k over all shards.
+        if [ "$SUMMARY" = "true" ]; then
+          $BENCH_CMD report \
+            --input="$MERGE_INPUT" \
+            --k="$K_VALUES" \
+            --format="$FORMAT" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        # Produce one combined results.jsonl for the merged artifact.
+        mkdir -p combined-results
+        : > combined-results/results.jsonl
+        find "$MERGE_INPUT" -name results.jsonl -exec cat {} + >> combined-results/results.jsonl || true
+
+    - name: Upload combined results
+      if: inputs.mode == 'merge' && inputs.upload-results == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ inputs.output }}/results.jsonl
+        path: combined-results/results.jsonl
         if-no-files-found: warn
