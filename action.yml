@@ -157,14 +157,15 @@ runs:
         SHARD_TOTAL: ${{ inputs.shard-total }}
         TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
       run: |
-        # Resolve CLI — prefer local install, fall back to bunx, then npx
-        if command -v fit-benchmark &>/dev/null; then
-          BENCH_CMD="fit-benchmark"
-        elif command -v bunx &>/dev/null; then
-          BENCH_CMD="bunx fit-benchmark"
-        else
-          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
+        # fit-benchmark must be on PATH as a pinned gear binary, installed by
+        # forwardimpact/fit-bootstrap with `clis: fit-benchmark`. No bunx/npx
+        # fallback — a missing binary fails hard rather than silently resolving
+        # a different (registry) build.
+        if ! command -v fit-benchmark &>/dev/null; then
+          echo "::error::fit-benchmark not found on PATH. Install it as a gear binary via forwardimpact/fit-bootstrap with 'clis: fit-benchmark' before this step. No bunx/npx fallback." >&2
+          exit 1
         fi
+        BENCH_CMD="fit-benchmark"
 
         args=()
         args+=("--family=$FAMILY")
@@ -208,13 +209,13 @@ runs:
         K_VALUES: ${{ inputs.k }}
         FORMAT: ${{ inputs.format }}
       run: |
-        if command -v fit-benchmark &>/dev/null; then
-          BENCH_CMD="fit-benchmark"
-        elif command -v bunx &>/dev/null; then
-          BENCH_CMD="bunx fit-benchmark"
-        else
-          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
+        # fit-benchmark must be on PATH as a pinned gear binary (fit-bootstrap
+        # clis: fit-benchmark). No bunx/npx fallback — fail hard if missing.
+        if ! command -v fit-benchmark &>/dev/null; then
+          echo "::error::fit-benchmark not found on PATH. Install it as a gear binary via forwardimpact/fit-bootstrap with 'clis: fit-benchmark' before this step. No bunx/npx fallback." >&2
+          exit 1
         fi
+        BENCH_CMD="fit-benchmark"
 
         RESULTS="$OUTPUT_DIR/results.jsonl"
         if [ ! -s "$RESULTS" ]; then
@@ -252,13 +253,13 @@ runs:
         FORMAT: ${{ inputs.format }}
         SUMMARY: ${{ inputs.summary }}
       run: |
-        if command -v fit-benchmark &>/dev/null; then
-          BENCH_CMD="fit-benchmark"
-        elif command -v bunx &>/dev/null; then
-          BENCH_CMD="bunx fit-benchmark"
-        else
-          BENCH_CMD="npx --yes @forwardimpact/libharness fit-benchmark"
+        # fit-benchmark must be on PATH as a pinned gear binary (fit-bootstrap
+        # clis: fit-benchmark). No bunx/npx fallback — fail hard if missing.
+        if ! command -v fit-benchmark &>/dev/null; then
+          echo "::error::fit-benchmark not found on PATH. Install it as a gear binary via forwardimpact/fit-bootstrap with 'clis: fit-benchmark' before this step. No bunx/npx fallback." >&2
+          exit 1
         fi
+        BENCH_CMD="fit-benchmark"
 
         # report --input discovers every results.jsonl under the directory
         # recursively and unions them — one combined pass@k over all shards.
